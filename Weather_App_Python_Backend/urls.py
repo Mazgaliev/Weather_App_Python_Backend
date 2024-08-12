@@ -1,0 +1,43 @@
+"""Weather_App_Python_Backend URL Configuration
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/4.0/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.urls import path
+from django.http import JsonResponse
+
+def scrape_data(request):
+    # Simple logic to scrape data
+    data = _parse_data()
+    return JsonResponse({'status': 'success', 'data': data})
+
+def train_models(request):
+    # Simple logic to train models
+    model_status = "Model trained successfully"
+    return JsonResponse({'status': 'success', 'message': model_status})
+
+def predict_values(request):
+    # Simple logic to predict values
+    predictions = {"result": "some predicted values"}
+    return JsonResponse({'status': 'success', 'predictions': predictions})
+
+def _parse_data():
+    # Dummy private function for data parsing
+    return {'parsed': 'data'}
+
+urlpatterns = [
+    path('scrape_data/', scrape_data, name='scrape_data'),
+    path('train_models/', train_models, name='train_models'),
+    path('predict_values/', predict_values, name='predict_values'),
+]
+

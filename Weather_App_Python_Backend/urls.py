@@ -15,25 +15,89 @@ Including another URLconf
 """
 from django.urls import path
 from django.http import JsonResponse
+import os
+from dotenv import load_dotenv
+import requests
+import json
+from django.views.decorators.csrf import csrf_exempt
+from datetime import datetime, timedelta
 
+load_dotenv()
+
+
+api_key = os.getenv('OPENWEATHERMAP_API_KEY')
+url = os.getenv("OPENWEATHERMAP_API_URL")
+
+@csrf_exempt   
 def scrape_data(request):
-    # Simple logic to scrape data
-    data = _parse_data()
-    return JsonResponse({'status': 'success', 'data': data})
 
+    latitude = request.POST.get("latitude")
+    longitude = request.POST.get("longitude")
+
+    # Simple logic to scrape data
+    now = datetime.now()
+    start = int((now - timedelta(hours=5)).timestamp())
+    end = int(now.timestamp())
+
+    params = {
+        'lat':latitude,
+        'lon':longitude,
+        'start':start,
+        'end':end,
+        'type':'hour',
+        'appid':api_key}
+    req = requests.models.PreparedRequest()
+    req.prepare_url(url, params)
+    
+    response = requests.get(req.url)
+    print(req.url)
+
+    print(response)
+    data = _parse_data(response)
+
+    return JsonResponse(data)
+
+@csrf_exempt   
 def train_models(request):
     # Simple logic to train models
     model_status = "Model trained successfully"
     return JsonResponse({'status': 'success', 'message': model_status})
 
+@csrf_exempt   
 def predict_values(request):
     # Simple logic to predict values
     predictions = {"result": "some predicted values"}
     return JsonResponse({'status': 'success', 'predictions': predictions})
 
-def _parse_data():
-    # Dummy private function for data parsing
-    return {'parsed': 'data'}
+def _parse_data(response):
+    final_results = []
+    if response.status_code == 200:
+        data = json.loads(response.content)
+        list_of_results = data.get('list')
+
+        if list_of_results == None or list_of_results == []:
+            return {'Result': None, 'Error' : True, 'Message':'Empty Response from OpenWeatherApi'}
+        
+        else:
+            for result in list_of_results:
+                parsed_result = {}
+                aqi = None
+                aqi_obj = result.get('main')
+                if aqi_obj != None:
+                    aqi = aqi_obj.get('aqi')
+
+                components = result.get('components')
+                if components == None:
+                    return {'Result' : None, 'Error' : True, 'Message': 'There is no details data for the rest of the parameters'}
+                parsed_result['co'] = components.get('co')
+                parsed_result['pm2_5'] = components.get('pm2_5')
+                parsed_result['pm10'] = components.get('pm10')
+                parsed_result['aqi'] = aqi
+                final_results.append(parsed_result)
+    else:
+        return {'Result':[], 'Error':True, 'Message':f'Problem with response from OpenweatherAPI {response.content}'}
+    
+    return {'Result': final_results, 'Error': False, 'Message': 'Success'}
 
 urlpatterns = [
     path('scrape_data/', scrape_data, name='scrape_data'),

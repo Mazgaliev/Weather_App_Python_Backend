@@ -21,6 +21,9 @@ import requests
 import json
 from django.views.decorators.csrf import csrf_exempt
 from datetime import datetime, timedelta
+from sklearn.ensemble import RandomForestRegressor
+import pickle
+import pandas as pd
 
 load_dotenv()
 
@@ -31,18 +34,17 @@ url = os.getenv("OPENWEATHERMAP_API_URL")
 @csrf_exempt   
 def scrape_data(request):
 
-    # latitude = request.POST.get("latitude")
-    # longitude = request.POST.get("longitude")
-    # station_id = request.POST.get('stationId')
     payload = json.loads(request.body)
-    stations = payload.get("stations_payload")
+    stations_payload = payload.get("stations_payload")
+    stations = stations_payload.get("Stations")
+    number_of_hours = stations_payload.get("NumberOfHours")
 
     if stations== None:
         return JsonResponse({'Result':[], 'Error':True, 'Message':f'EMPTY stations payload'})
         
     # Simple logic to scrape data
     now = datetime.now()
-    start = int((now - timedelta(hours=5)).timestamp())
+    start = int((now - timedelta(hours=number_of_hours)).timestamp())
     end = int(now.timestamp())
 
     final_result = []
@@ -71,13 +73,68 @@ def scrape_data(request):
 @csrf_exempt   
 def train_models(request):
     # Simple logic to train models
-    all_data = requests.POST.get('data')
-    model_status = "Model trained successfully"
+    
+    all_data = json.loads(request.body)
+    measurements  = all_data.get('measurements_payload')
+    
+    if measurements == None or measurements == []:
+        return JsonResponse({'status': 'fail', 'result':[]})   
+    ## transforms it to a dataframe
+    measurements_df = pd.DataFrame(measurements)
+
+    
+    pm10_model =_fit_model(RandomForestRegressor(n_estimators= 150), measurements)
+    pm2_5_model = _fit_model(RandomForestRegressor(n_estimators= 150), measurements)
+    co_model = _fit_model(RandomForestRegressor(n_estimators= 150), measurements)
+    so2_model = _fit_model(RandomForestRegressor(n_estimators= 150), measurements)
+
+    with open('../models/pm2_5_model.pkl','wb') as f:
+        pickle.dump(pm10_model, f)
+    
+    with open('../models/pm2_5_model.pkl','wb') as f:
+        pickle.dump(pm2_5_model, f)
+
+    with open('../models/co_model.pkl','wb') as f:
+        pickle.dump(co_model, f)
+
+    with open('../models/so2_model.pkl','wb') as f:
+        pickle.dump(so2_model, f)
+
+    model_status = "Models trained successfully"
     return JsonResponse({'status': 'success', 'message': model_status})
 
 @csrf_exempt   
 def predict_values(request):
+
+    #small models easy to load them in and predict the needed values
     # Simple logic to predict values
+
+    all_data = json.loads(request.body)
+    measurements  = all_data.get('measurements_payload')
+
+    if measurements == None or measurements == []:
+        return JsonResponse({"status":'failed', 'result':[]})
+    
+    measurements_df = pd.DataFrame(measurements)
+    
+    pm10_model = None
+    pm2_5_model = None
+    co_model = None
+    so2_model = None
+
+    with open('../models/pm10_model.pkl','rb') as f:
+        pm10_model = pickle.load(f)
+    
+    with open('../models/pm2_5_model.pkl','rb') as f:
+        pm2_5_model = pickle.load(f)
+
+    with open('../models/co_model.pkl','rb') as f:
+        co_model = pickle.load(f)
+
+    with open('../models/so2_model.pkl','rb') as f:
+        so2_model = pickle.load(f)
+
+    
     predictions = {"result": "some predicted values"}
     return JsonResponse({'status': 'success', 'predictions': predictions})
 
@@ -115,6 +172,11 @@ def _parse_data(response, station_id):
     
     return {'Result': final_results, 'Error': False, 'Message': 'Success'}
 
+def _fit_model(model, data):
+    return model
+
+def _transform_data_for_prediction():
+    pass
 urlpatterns = [
     path('scrape_data/', scrape_data, name='scrape_data'),
     path('train_models/', train_models, name='train_models'),

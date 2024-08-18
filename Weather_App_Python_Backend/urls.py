@@ -44,7 +44,7 @@ def scrape_data(request):
 
     if stations== None:
         logging_service.error("Empty stations provided")
-        return JsonResponse({'Result':[], 'Error':True, 'Message':f'EMPTY stations payload'})
+        return JsonResponse({'Result':[], 'Error':True, 'Message':f'EMPTY stations payload'}, status = 400)
         
     # Simple logic to scrape data
     now = datetime.now()
@@ -126,30 +126,19 @@ def predict_values(request):
     measurements  = all_data.get('measurements_payload')
 
     if measurements == None or measurements == []:
-        return JsonResponse({"status":'failed', 'result':[]})
+        logging_service.error("Empty request body provided, bad request")
+        return JsonResponse({"Status":'failed', 'result':[]}, status = 400)
     
     measurements_df = pd.DataFrame(measurements)
+    ## first step seperate them by station Ids 
+    predictions = []
+    try:
+        predictions = _predict_values_and_transform(measurements_df)
+    except Exception as exc:
+        logging_service.critical(f"Predictions failed due to an error {exc}")
+        return JsonResponse({'status': 'success', 'predictions': predictions}, status = 500)
     
-    pm10_model = None
-    pm2_5_model = None
-    co_model = None
-    so2_model = None
-
-    with open('../models/pm10_model.pkl','rb') as f:
-        pm10_model = pickle.load(f)
-    
-    with open('../models/pm2_5_model.pkl','rb') as f:
-        pm2_5_model = pickle.load(f)
-
-    with open('../models/co_model.pkl','rb') as f:
-        co_model = pickle.load(f)
-
-    with open('../models/so2_model.pkl','rb') as f:
-        so2_model = pickle.load(f)
-
-    
-    predictions = {"result": "some predicted values"}
-    return JsonResponse({'status': 'success', 'predictions': predictions})
+    return JsonResponse({'Status': 'success', 'Forecasts': predictions})
 
 def _parse_data(response, station_id):
     final_results = []
@@ -203,7 +192,7 @@ def _transform_for_prediction(data, column):
         tmp[f'{i}_Hours_Ago'] = tmp[column].shift(i)
     tmp.dropna(inplace=True)
     tmp.drop(columns=['MeasurementTime', column], inplace=True)
-    return tmp.to_numpy()
+    return tmp
 
 def _transform_for_training(data, column):
     tmp = data[['MeasurementTime', column]].copy()
@@ -216,13 +205,64 @@ def _transform_for_training(data, column):
     X = tmp.drop(columns=['MeasurementTime', column])
     Y = tmp[column]
 
-    X_trian = X[:round(n*0.95)]
-    y_train = Y[:round(n*0.95)]
-    X_test = X[round(n*0.95):]
-    y_test = Y[round(n*0.95):]
+    X_trian = X.loc[:round(n*0.95)]
+    y_train = Y.loc[:round(n*0.95)]
+    X_test = X.loc[round(n*0.95):]
+    y_test = Y.loc[round(n*0.95):]
     
     return (X_trian, X_test, y_train, y_test)
 
+def _predict_values_and_transform(df):
+
+   ## load in the models since they are small and task is preformed every hour or longer
+   
+   with open('models/pm10_model.pkl','rb') as f:
+      pm10_model = pickle.load(f)
+
+   with open('models/pm2_5_model.pkl','rb') as f:
+      pm2_5_model = pickle.load(f)
+
+   with open('models/co_model.pkl','rb') as f:
+      co_model = pickle.load(f)
+
+   with open('models/so2_model.pkl','rb') as f:
+      so2_model = pickle.load(f)
+
+   stationIds = df['StationId'].drop_duplicates().tolist()
+   to_predict_columns = ['PM10','PM2_5', 'CO', 'SO2']
+   combined_predictions = []
+   now = datetime.now()
+   for id in stationIds:
+      station_data_to_predict = df[df['StationId'] == id].dropna()
+      pm10_preds = []
+      pm25_preds = []
+      so2_preds = []
+      co_preds = []
+      for column in to_predict_columns:
+         transformed_data_to_predict = transform_for_prediction(station_data_to_predict, column).dropna()
+         if column == 'PM10':
+            pm10_preds = pm10_model.predict(transformed_data_to_predict)  
+         elif column == 'PM2_5':
+            pm25_preds = pm2_5_model.predict(transformed_data_to_predict)
+         elif column == 'SO2':
+            so2_preds = so2_model.predict(transformed_data_to_predict)
+         elif column == 'CO':
+            co_preds = co_model.predict(transformed_data_to_predict)      
+      
+      for i in range(len(pm10_preds)):
+         timestamp = int((now + timedelta(hours=i+1)).timestamp())
+         combined_predictions.append({'StationId':id, 'ForecastTime':timestamp ,'PM10':pm10_preds[i], 'PM2_5':pm25_preds[i], 'SO2':so2_preds[i], 'CO': co_preds[i]})
+   
+   return combined_predictions
+
+def transform_for_prediction(data, column):
+    tmp = data[['MeasurementTime', column]].copy()
+
+    for i in range(1, 25):
+        tmp[f'{i}_Hours_Ago'] = tmp[column].shift(i)
+    tmp.dropna(inplace=True)
+    tmp.drop(columns=['MeasurementTime', column], inplace=True)
+    return tmp
 urlpatterns = [
     path('scrape_data/', scrape_data, name='scrape_data'),
     path('train_models/', train_models, name='train_models'),

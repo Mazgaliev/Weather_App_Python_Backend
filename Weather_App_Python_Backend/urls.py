@@ -21,25 +21,29 @@ import requests
 import json
 from django.views.decorators.csrf import csrf_exempt
 from datetime import datetime, timedelta
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 import pickle
 import pandas as pd
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from logger.logger_service import LoggingService
 
 load_dotenv()
 
+logging_service = LoggingService(log_file=f"logs/app.log", logger_name='Python Backend Logger')
 
 api_key = os.getenv('OPENWEATHERMAP_API_KEY')
 url = os.getenv("OPENWEATHERMAP_API_URL")
 
 @csrf_exempt   
 def scrape_data(request):
-
+    
     payload = json.loads(request.body)
     stations_payload = payload.get("stations_payload")
     stations = stations_payload.get("Stations")
     number_of_hours = stations_payload.get("NumberOfHours")
 
     if stations== None:
+        logging_service.error("Empty stations provided")
         return JsonResponse({'Result':[], 'Error':True, 'Message':f'EMPTY stations payload'})
         
     # Simple logic to scrape data
@@ -68,6 +72,8 @@ def scrape_data(request):
 
         data = _parse_data(response, station_id)
         final_result.append(data)
+
+    logging_service.info("Sucessfully scraped data")
     return JsonResponse({"Result" : final_result})
 
 @csrf_exempt   
@@ -78,29 +84,36 @@ def train_models(request):
     measurements  = all_data.get('measurements_payload')
     
     if measurements == None or measurements == []:
-        return JsonResponse({'status': 'fail', 'result':[]})   
+        logging_service.critical("Could not train models, measurements was empty")
+        return JsonResponse({'status': 'fail', 'message':'Could not train models, no measurements provided'})   
+    
     ## transforms it to a dataframe
     measurements_df = pd.DataFrame(measurements)
-
     
-    pm10_model =_fit_model(RandomForestRegressor(n_estimators= 150), measurements)
-    pm2_5_model = _fit_model(RandomForestRegressor(n_estimators= 150), measurements)
-    co_model = _fit_model(RandomForestRegressor(n_estimators= 150), measurements)
-    so2_model = _fit_model(RandomForestRegressor(n_estimators= 150), measurements)
+    pm10_model =_fit_model(LinearRegression(), measurements_df, 'PM10')
+    pm2_5_model = _fit_model(LinearRegression(), measurements_df, 'PM2_5')
+    co_model = _fit_model(LinearRegression(), measurements_df, 'CO')
+    so2_model = _fit_model(LinearRegression(), measurements_df, 'SO2')
 
-    with open('../models/pm2_5_model.pkl','wb') as f:
+    with open('../models/pm10_model.pkl','wb') as f:
         pickle.dump(pm10_model, f)
+        logging_service.info("Successfully saved pm10 model")
     
     with open('../models/pm2_5_model.pkl','wb') as f:
         pickle.dump(pm2_5_model, f)
+        logging_service.info("Successfully saved pm2_5 model")
 
     with open('../models/co_model.pkl','wb') as f:
         pickle.dump(co_model, f)
+        logging_service.info("Successfully saved co model")
 
     with open('../models/so2_model.pkl','wb') as f:
         pickle.dump(so2_model, f)
+        logging_service.info("Successfully saved so2 model")
+        
 
     model_status = "Models trained successfully"
+    logging_service.info(model_status)
     return JsonResponse({'status': 'success', 'message': model_status})
 
 @csrf_exempt   
@@ -172,11 +185,44 @@ def _parse_data(response, station_id):
     
     return {'Result': final_results, 'Error': False, 'Message': 'Success'}
 
-def _fit_model(model, data):
+def _fit_model(model, data, column):
+    X_train, X_test, y_train, y_test = _transform_for_training(data, column)
+    model.fit(X_train, y_train)
+    logging_service.info(f"Successfully trained {column} model")
+    predictions = model.predict(X_test)
+
+    logging_service.info(f"Mean squared error score {mean_squared_error(y_test, predictions)} for {column} model")
+    logging_service.info(f"Mean absolute error score {mean_absolute_error(y_test, predictions)} for {column} model")
+    
     return model
 
-def _transform_data_for_prediction():
-    pass
+def _transform_for_prediction(data, column):
+    tmp = data[['MeasurementTime', column]].copy()
+
+    for i in range(1, 25):
+        tmp[f'{i}_Hours_Ago'] = tmp[column].shift(i)
+    tmp.dropna(inplace=True)
+    tmp.drop(columns=['MeasurementTime', column], inplace=True)
+    return tmp.to_numpy()
+
+def _transform_for_training(data, column):
+    tmp = data[['MeasurementTime', column]].copy()
+
+    for i in range(1, 25):
+        tmp[f'{i}_Hours_Ago'] = tmp[column].shift(i)
+    tmp.dropna(inplace=True)
+    n = len(tmp)
+    
+    X = tmp.drop(columns=['MeasurementTime', column])
+    Y = tmp[column]
+
+    X_trian = X[:round(n*0.95)]
+    y_train = Y[:round(n*0.95)]
+    X_test = X[round(n*0.95):]
+    y_test = Y[round(n*0.95):]
+    
+    return (X_trian, X_test, y_train, y_test)
+
 urlpatterns = [
     path('scrape_data/', scrape_data, name='scrape_data'),
     path('train_models/', train_models, name='train_models'),

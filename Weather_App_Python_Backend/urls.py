@@ -95,19 +95,19 @@ def train_models(request):
     co_model = _fit_model(LinearRegression(), measurements_df, 'CO')
     so2_model = _fit_model(LinearRegression(), measurements_df, 'SO2')
 
-    with open('../models/pm10_model.pkl','wb') as f:
+    with open('models/pm10_model.pkl','wb') as f:
         pickle.dump(pm10_model, f)
         logging_service.info("Successfully saved pm10 model")
     
-    with open('../models/pm2_5_model.pkl','wb') as f:
+    with open('models/pm2_5_model.pkl','wb') as f:
         pickle.dump(pm2_5_model, f)
         logging_service.info("Successfully saved pm2_5 model")
 
-    with open('../models/co_model.pkl','wb') as f:
+    with open('models/co_model.pkl','wb') as f:
         pickle.dump(co_model, f)
         logging_service.info("Successfully saved co model")
 
-    with open('../models/so2_model.pkl','wb') as f:
+    with open('models/so2_model.pkl','wb') as f:
         pickle.dump(so2_model, f)
         logging_service.info("Successfully saved so2 model")
         

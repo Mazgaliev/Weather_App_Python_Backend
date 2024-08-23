@@ -185,15 +185,6 @@ def _fit_model(model, data, column):
     
     return model
 
-def _transform_for_prediction(data, column):
-    tmp = data[['MeasurementTime', column]].copy()
-
-    for i in range(1, 25):
-        tmp[f'{i}_Hours_Ago'] = tmp[column].shift(i)
-    tmp.dropna(inplace=True)
-    tmp.drop(columns=['MeasurementTime', column], inplace=True)
-    return tmp
-
 def _transform_for_training(data, column):
     tmp = data[['MeasurementTime', column]].copy()
 
@@ -231,7 +222,7 @@ def _predict_values_and_transform(df):
    stationIds = df['StationId'].drop_duplicates().tolist()
    to_predict_columns = ['PM10','PM2_5', 'CO', 'SO2']
    combined_predictions = []
-   now = datetime.now()
+   now = hour_rounder(datetime.now())
    for id in stationIds:
       station_data_to_predict = df[df['StationId'] == id].dropna()
       pm10_preds = []
@@ -263,6 +254,10 @@ def transform_for_prediction(data, column):
     tmp.dropna(inplace=True)
     tmp.drop(columns=['MeasurementTime', column], inplace=True)
     return tmp
+def hour_rounder(t):
+    # Rounds to nearest hour by adding a timedelta hour if minute >= 30
+    return t.replace(second=0, microsecond=0, minute=0, hour=t.hour)
+
 urlpatterns = [
     path('scrape_data/', scrape_data, name='scrape_data'),
     path('train_models/', train_models, name='train_models'),
